@@ -21,7 +21,7 @@ from svc_sim_common.events import KafkaBus
 from svc_sim_common.mcp_client import MCPTools, ToolError
 from svc_sim_common.memory import valkey
 from svc_sim_common.telemetry import (GEN_AI_AGENT_NAME, GEN_AI_CONVERSATION_ID, GEN_AI_OPERATION, agent_context, run_context,
-                                      sim_clock_context)
+                                      sim_clock_context, trace_ids)
 
 from .tooling import assistant_tool_message, local_tool, summarise, tool_catalogue, tool_result_message
 
@@ -80,11 +80,15 @@ class Assistant(BaseAgent):
                 return {"reply": "The assistant is not on shift for this run."}
             run.tick = int(req.context.get("tick", run.tick))
             run.sim_time = req.context.get("sim_time", run.sim_time)
+            # The reply is a step in the assistant's own run trace, linked to the shopper's request.
             with run_context(req.run_id), sim_clock_context(run.tick, run.sim_time), agent_context(self.name), \
-                    self.tracer.start_as_current_span(f"invoke_agent {self.name}") as span:
+                    self.step(run, f"invoke_agent {self.name}", link_label="chat") as span:
                 span.set_attribute(GEN_AI_OPERATION, "invoke_agent")
                 span.set_attribute(GEN_AI_AGENT_NAME, self.name)
+                span.set_attribute("svc_sim.agent.type", self.agent_type)
                 span.set_attribute(GEN_AI_CONVERSATION_ID, req.conversation_id)
+                span.set_attribute("svc_sim.chat.from", req.persona_name or req.shopper_id)
+                span.set_attribute("svc_sim.sim_tick", run.tick)
                 reply = await self._converse(run, req)
             return {"reply": reply}
 
@@ -144,12 +148,18 @@ class Assistant(BaseAgent):
     async def _tool(self, run: RunState, req: ChatIn, name: str, args: dict[str, Any], call_id: str) -> Any:
         if name == "handoff_to_fraud":
             case_id = hashlib.sha256(f"{run.run_id}/{req.conversation_id}/{args.get('order_id')}".encode()).hexdigest()[:16]
-            msg = {"schema": "agent-handoff.v1", "case_id": case_id, "run_id": run.run_id, "from": self.agent_id, "to": "fraud-review",
-                   "order_id": args.get("order_id") or req.context.get("order_id"), "reason": args.get("reason", ""),
-                   "severity": args.get("severity", "medium"), "conversation_id": req.conversation_id,
-                   "customer": {"shopper_id": req.shopper_id, "session_id": req.context.get("session_id")},
-                   "sim_tick": run.tick, "sim_time": run.sim_time}
-            await KafkaBus.send(TOPIC_HANDOFF, msg, key=case_id)
+            with self.tracer.start_as_current_span("execute_tool handoff_to_fraud", kind=trace.SpanKind.PRODUCER) as span:
+                span.set_attribute("gen_ai.operation.name", "execute_tool")
+                span.set_attribute("gen_ai.tool.name", "handoff_to_fraud")
+                span.set_attribute("svc_sim.handoff.case_id", case_id)
+                span.set_attribute("messaging.destination.name", TOPIC_HANDOFF)
+                # the span id travels with the message so the Fraud agent's review links back to it
+                msg = {"schema": "agent-handoff.v1", "case_id": case_id, "run_id": run.run_id, "from": self.agent_id, "to": "fraud-review",
+                       "order_id": args.get("order_id") or req.context.get("order_id"), "reason": args.get("reason", ""),
+                       "severity": args.get("severity", "medium"), "conversation_id": req.conversation_id,
+                       "customer": {"shopper_id": req.shopper_id, "session_id": req.context.get("session_id")},
+                       "sim_tick": run.tick, "sim_time": run.sim_time, "trace": trace_ids()}
+                await KafkaBus.send(TOPIC_HANDOFF, msg, key=case_id)
             await self.emit(run, "handoff.sent", {k: msg[k] for k in ("case_id", "order_id", "reason", "severity", "to")}, location="help-desk")
             return {"ok": True, "case_id": case_id}
         if name in ("get_shipping_quote",):

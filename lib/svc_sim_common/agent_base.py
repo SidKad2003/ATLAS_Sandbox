@@ -9,11 +9,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import random
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 from fastapi import FastAPI
 from opentelemetry import trace
+from opentelemetry.context import Context as OtelContext
 from pydantic import BaseModel
 
 from .events import EventPublisher
@@ -106,6 +108,42 @@ class BaseAgent:
         await self.episodic.add(run.run_id, run.sim_time, content, importance, vec, kind)
         await self.emit(run, "memory.write", {"memory": "episodic", "kind": kind, "importance": importance, "content": content[:200]})
 
+    # ---- per-agent run trace ----
+    # Each agent gets ONE trace per run ("agent_run <name>"); every step nests under it in time order,
+    # so Jaeger shows "Amara did A, then B, then C". Each step links back to the span that triggered it
+    # (the Conductor's tick, or the shopper who chatted), so the per-tick view still exists via links.
+    def start_run_trace(self, run: RunState) -> None:
+        self.end_run_trace(run)
+        name = self.events.agent["name"]
+        caller = trace.get_current_span().get_span_context()
+        root = self.tracer.start_span(
+            f"agent_run {name}", context=OtelContext(), kind=trace.SpanKind.INTERNAL,
+            links=[trace.Link(caller, {"svc_sim.link": "run.start"})] if caller.is_valid else [],
+            attributes={GEN_AI_OPERATION: "agent_run", GEN_AI_AGENT_NAME: name, GEN_AI_AGENT_ID: self.agent_id,
+                        "svc_sim.agent.type": self.agent_type, "rait.run_id": run.run_id, "rait.testbed": "svc-sim",
+                        "svc_sim.run.seed": run.seed},
+        )
+        run.data["_run_span"] = root
+
+    def end_run_trace(self, run: RunState, summary: dict[str, Any] | None = None) -> None:
+        root = run.data.pop("_run_span", None)
+        if root is None:
+            return
+        for k, v in (summary or {}).items():
+            if isinstance(v, (str, int, float, bool)):
+                root.set_attribute(f"svc_sim.summary.{k}", v)
+        root.end()
+
+    @contextmanager
+    def step(self, run: RunState, span_name: str, link_label: str = "tick") -> Iterator[trace.Span]:
+        """One agent step inside the agent's run trace, linked to whatever triggered it."""
+        caller = trace.get_current_span().get_span_context()
+        root = run.data.get("_run_span")
+        ctx = trace.set_span_in_context(root) if root is not None else None  # keeps current baggage
+        links = [trace.Link(caller, {"svc_sim.link": link_label})] if caller.is_valid else []
+        with self.tracer.start_as_current_span(span_name, context=ctx, links=links) as span:
+            yield span
+
     # ---- FastAPI wiring ----
     def app(self) -> Any:
         api = FastAPI(title=f"svc-sim {self.agent_type} {self.agent_id}")
@@ -123,6 +161,8 @@ class BaseAgent:
             with run_context(req.run_id):
                 await agent.working.clear(req.run_id)
                 await agent.on_start(run)
+                if run.data.get("active", True):
+                    agent.start_run_trace(run)
             return {"ok": True}
 
         @api.post("/tick")
@@ -134,7 +174,7 @@ class BaseAgent:
             if run.stopped:
                 return {"ok": True, "stopped": True}
             with run_context(req.run_id), sim_clock_context(req.tick, req.sim_time), agent_context(agent.events.agent["name"]), \
-                    agent.tracer.start_as_current_span(f"invoke_agent {agent.events.agent['name']}") as span:
+                    agent.step(run, f"invoke_agent {agent.events.agent['name']}") as span:
                 span.set_attribute(GEN_AI_OPERATION, "invoke_agent")
                 span.set_attribute(GEN_AI_AGENT_NAME, agent.events.agent["name"])
                 span.set_attribute("svc_sim.agent.type", agent.agent_type)
@@ -164,6 +204,7 @@ class BaseAgent:
             run.tick, run.sim_time = req.tick, req.sim_time
             with run_context(req.run_id):
                 summary = await agent.on_finish(run)
+            agent.end_run_trace(run, summary)
             return {"ok": True, **(summary or {})}
 
         agent.extra_routes(api)

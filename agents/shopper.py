@@ -12,6 +12,7 @@ import uuid
 from typing import Any
 
 import httpx
+from opentelemetry import trace
 
 from svc_sim_common.agent_base import BaseAgent, RunState
 from svc_sim_common.config import env
@@ -267,9 +268,15 @@ class Shopper(BaseAgent):
                             "cart_items": [{"product_id": c["product_id"], "quantity": c["quantity"]} for c in state["cart"]],
                             "address": state["persona"]["address"], "sim_time": run.sim_time, "tick": run.tick}}
         try:
-            r = await self.http.post(f"{self.assistant_url}/chat", json=body)
-            r.raise_for_status()
-            reply = r.json().get("reply", "")
+            # visible in the shopper's run trace as "sent a message to the Shopping Assistant"
+            with self.tracer.start_as_current_span("execute_tool ask_assistant", kind=trace.SpanKind.CLIENT) as span:
+                span.set_attribute("gen_ai.operation.name", "execute_tool")
+                span.set_attribute("gen_ai.tool.name", "ask_assistant")
+                span.set_attribute("gen_ai.conversation.id", conversation_id)
+                span.set_attribute("svc_sim.chat.to", "Shopping Assistant")
+                r = await self.http.post(f"{self.assistant_url}/chat", json=body)
+                r.raise_for_status()
+                reply = r.json().get("reply", "")
         except Exception as exc:
             reply = ""
             await self.emit(run, "error", {"error": "assistant unavailable", "detail": str(exc)[:200]}, location="help-desk")

@@ -16,9 +16,38 @@ Grafana → Dashboards → Demo → **svc-sim agents**. Choose a **Run**, option
 | Tool call latency p95 | How long each agent waited on each tool (MCP server plus the shop behind it) |
 | Run timeline | One trace per sim-clock tick; click a tick to see every agent's step in that minute |
 
-## 2. Then Jaeger: one agent's reasoning and actions
+## 2. Then Jaeger: one agent's story, step by step
 
-Search with **Service** = the agent's role and **Tags** = the agent:
+Each agent has **one trace per run**, named `agent_run <name>` (for example `agent_run Amara`). Open it and the waterfall shows everything that agent did in that run, in time order: A, then B, then C.
+
+| To see | Service | Operation |
+|---|---|---|
+| Amara's whole run | `svc-sim-shopper` | `agent_run Amara` |
+| Shopping Assistant's whole run (every reply, each linked to the shopper who asked) | `svc-sim-assistant` | `agent_run Shopping Assistant` |
+| Fraud Review's whole run (each `review_case` links to the assistant's handoff) | `svc-sim-fraud` | `agent_run Fraud Review` |
+| SRE / Ops's whole run | `svc-sim-sre` | `agent_run SRE / Ops` |
+| Everything in one sim minute, across agents | `svc-sim-conductor` | `conductor.tick N` |
+
+Inside an agent's run trace:
+
+```
+agent_run Amara                                   the whole run (summary on the span: orders, chats)
+├─ invoke_agent Amara   (tick 3)                  one step; "References" link to the Conductor tick
+│  ├─ chat svc-sim-mock-small-v1                  the model decided what to do
+│  └─ execute_tool search_products → shop-mcp → frontend-proxy → frontend → product-catalog
+├─ invoke_agent Amara   (tick 5)
+│  └─ execute_tool ask_assistant → POST /chat     a message to the Shopping Assistant (its reply is in the assistant's trace, linked)
+├─ invoke_agent Amara   (tick 9)
+│  └─ execute_tool add_to_cart → ... → cart
+└─ invoke_agent Amara   (tick 11)
+   └─ execute_tool checkout → ... → checkout, payment, shipping, email
+```
+
+The links between traces ("References" in Jaeger's span detail) are how you follow a conversation or a case: shopper `ask_assistant` → assistant `invoke_agent` (reply) → assistant `execute_tool handoff_to_fraud` → fraud `review_case` → `execute_tool escalate_to_human`.
+
+During a live run the agent's steps already appear together in one trace; Jaeger flags a missing parent until the run ends and the `agent_run` span is written. Runs recorded before this change only have per-tick traces.
+
+Older style search (still works): **Service** = the agent's role and **Tags** = the agent:
 
 | Agent | Service | Tags |
 |---|---|---|

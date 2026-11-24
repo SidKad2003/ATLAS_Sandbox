@@ -91,8 +91,10 @@
       ],
       "fieldConfig": {"defaults": {"decimals": 0}, "overrides": [
         {"matcher": {"id": "byName", "options": "Agent"}, "properties": [{"id": "links", "value": [
-          {"title": "Open ${__data.fields.Agent} traces in Jaeger", "targetBlank": true,
-           "url": "/jaeger/ui/search?service=svc-sim-${__data.fields.Role}&tags=%7B%22gen_ai.agent.name%22%3A%22${__data.fields.Agent}%22%7D&lookback=6h&limit=50"}]}]}
+          {"title": "Open ${__data.fields.Agent}'s run timelines in Jaeger (one trace per run)", "targetBlank": true,
+           "url": "/jaeger/ui/search?service=svc-sim-${__data.fields.Role}&operation=agent_run%20${__data.fields.Agent}&lookback=2d&limit=20"},
+          {"title": "Open ${__data.fields.Agent}'s individual steps in Jaeger", "targetBlank": true,
+           "url": "/jaeger/ui/search?service=svc-sim-${__data.fields.Role}&operation=invoke_agent%20${__data.fields.Agent}&lookback=6h&limit=50"}]}]}
       ]}
     },
     {

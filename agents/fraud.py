@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from opentelemetry import trace
 from aiokafka import AIOKafkaConsumer
 
 from svc_sim_common.agent_base import BaseAgent, RunState
@@ -90,7 +91,7 @@ class FraudReview(BaseAgent):
         if m.get("run_id") != self.active_run:
             return None
         return {"source": "handoff", "order_id": m.get("order_id"), "case_id": m.get("case_id"), "reason": m.get("reason", ""),
-                "severity": m.get("severity", "medium")}
+                "severity": m.get("severity", "medium"), "_trace": m.get("trace") or {}}
 
     async def on_start(self, run: RunState) -> None:
         self.active_run = run.run_id
@@ -166,6 +167,24 @@ class FraudReview(BaseAgent):
                 run.data["applied"].add(a["id"])
 
     async def _triage(self, run: RunState, case: dict[str, Any]) -> str:
+        """One case review, as a span in the Fraud agent's run trace, linked to the assistant's handoff if any."""
+        src = case.get("_trace") or {}
+        links = []
+        if src.get("trace_id") and src.get("span_id"):
+            ctx = trace.SpanContext(int(src["trace_id"], 16), int(src["span_id"], 16), is_remote=True,
+                                    trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED))
+            links.append(trace.Link(ctx, {"svc_sim.link": "handoff"}))
+        clean = {k: v for k, v in case.items() if k != "_trace"}
+        with self.tracer.start_as_current_span(f"review_case {clean.get('source')}", links=links) as span:
+            span.set_attribute("svc_sim.case.source", str(clean.get("source")))
+            span.set_attribute("svc_sim.case.order_id", str(clean.get("order_id") or ""))
+            if clean.get("case_id"):
+                span.set_attribute("svc_sim.handoff.case_id", str(clean["case_id"]))
+            outcome = await self._review(run, clean)
+            span.set_attribute("svc_sim.case.outcome", outcome)
+            return outcome
+
+    async def _review(self, run: RunState, case: dict[str, Any]) -> str:
         state: dict[str, Any] = {"case": case, "done_tools": [], "results": {}, "threshold": self.threshold, "value_usd": 0.0}
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": "You are the Fraud Review agent. Follow the fraud policy.\n" + run.data["policy"]},
@@ -202,17 +221,27 @@ class FraudReview(BaseAgent):
 
     async def _tool(self, run: RunState, name: str, args: dict[str, Any], call_id: str, state: dict[str, Any]) -> Any:
         if name == "escalate_to_human":
-            body = {"run_id": run.run_id, "kind": args.get("action", "hold_order"), "requested_by": self.agent_id,
-                    "subject": args["order_id"], "rationale": args.get("rationale", ""),
-                    "request": {"order_id": args["order_id"], "action": args.get("action"), "value_usd": state.get("value_usd"),
-                                "threshold_usd": self.threshold}}
-            await self.emit(run, "tool.call", {"tool": name, "args": {k: v for k, v in body.items() if k != "request"}}, location="fraud-office")
-            r = await self.approvals.post("/api/approvals", json=body)
-            r.raise_for_status()
-            result = r.json()
-            await self.emit(run, "tool.result", {"tool": name, "ok": True, "summary": f"approval {result['id']} {result['status']}"},
-                            location="approval-desk")
-            return {"approval_id": result["id"], "status": result["status"]}
+            with self.tracer.start_as_current_span("execute_tool escalate_to_human", kind=trace.SpanKind.CLIENT) as span:
+                span.set_attribute("gen_ai.operation.name", "execute_tool")
+                span.set_attribute("gen_ai.tool.name", "escalate_to_human")
+                span.set_attribute("svc_sim.case.order_id", str(args.get("order_id", "")))
+                return await self._escalate(run, name, args, state)
+        return await self._mcp_tool(run, name, args, call_id)
+
+    async def _escalate(self, run: RunState, name: str, args: dict[str, Any], state: dict[str, Any]) -> Any:
+        body = {"run_id": run.run_id, "kind": args.get("action", "hold_order"), "requested_by": self.agent_id,
+                "subject": args["order_id"], "rationale": args.get("rationale", ""),
+                "request": {"order_id": args["order_id"], "action": args.get("action"), "value_usd": state.get("value_usd"),
+                            "threshold_usd": self.threshold}}
+        await self.emit(run, "tool.call", {"tool": name, "args": {k: v for k, v in body.items() if k != "request"}}, location="fraud-office")
+        r = await self.approvals.post("/api/approvals", json=body)
+        r.raise_for_status()
+        result = r.json()
+        await self.emit(run, "tool.result", {"tool": name, "ok": True, "summary": f"approval {result['id']} {result['status']}"},
+                        location="approval-desk")
+        return {"approval_id": result["id"], "status": result["status"]}
+
+    async def _mcp_tool(self, run: RunState, name: str, args: dict[str, Any], call_id: str) -> Any:
         if name in ("hold_order", "release_order"):
             args.update(requested_by=self.agent_id, run_id=run.run_id)
         await self.emit(run, "tool.call", {"tool": name, "server": "store-ops-mcp", "args": args}, location="fraud-office")

@@ -31,6 +31,10 @@ jobs:
         run: pip install -r docker/requirements.txt
       - name: Compile everything
         run: python -m compileall -q lib gateway mcp_servers agents approval policy-store viz/bridge ops/scripts tests
+      - name: No undefined names (catches missing imports that only fail at runtime)
+        run: |
+          pip install -q pyflakes==4.1.0
+          if python -m pyflakes lib gateway mcp_servers agents approval policy-store viz/bridge ops/scripts tests | grep -i "undefined name"; then exit 1; fi
       - name: Unit tests (no live stack needed)
         env: {OTEL_SDK_DISABLED: "true", PYTHONPATH: "lib:.:viz"}
         run: |
