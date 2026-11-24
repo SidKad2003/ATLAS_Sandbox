@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# svc-sim pre-commit: banned-term check. Install with `make hooks`.
+# Set BANNED_TERMS_FILE to the list kept outside the repo; without it the check is skipped.
+exec bash "$(git rev-parse --show-toplevel)/ops/scripts/banned-check.sh"

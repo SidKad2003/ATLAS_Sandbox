@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>svc-sim store town</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>svc-sim store town</h1>
+    <span id="run-label" class="run-label"></span>
+    <span id="status" class="status">Starting</span>
+  </header>
+  <main>
+    <section class="left">
+      <div id="stage" aria-label="Store town map"></div>
+      <div id="idle-hint" class="hint" hidden>
+        No run is in progress. Start one on the host with <code>make live-demo</code> (about 16 minutes) or
+        <code>make run SEED=42</code>, and it will appear here as it happens. Switch to Replay to watch recorded runs.
+      </div>
+      <details class="legend" open>
+        <summary>How to read the map</summary>
+        <div class="legend-grid">
+          <div><b>Coloured circles</b> are agents. Shoppers have their own colours and start at the Homes; the Shopping Assistant (A) sits at the Help desk, Fraud Review (F) in the Fraud office, SRE / Ops (S) in the Ops room, and human approvers (H) at the Approval desk.</div>
+          <div><b>Labels above an agent</b> say what they just did: 🔍 SEARCH, 👀 VIEW, 🛒 + BASKET, 📦 DELIVERY?, 💳 CHECKOUT, ✅ ORDER ✓, ❌ FAILED, 🛡 BLOCKED.</div>
+          <div><b>Travelling tokens</b> show work passing between agents: 🤝 case (assistant to fraud), 🧾 approval (agent to a human), 📦 order (checkout to warehouse). 💬 bubbles and dashed lines are chats.</div>
+          <div><b>Red pulsing places</b> have an injected fault. Badges show 🧾 approvals waiting for a human, 🚨 incidents, ✅ orders and 🤝 fraud cases. 🛒 next to a shopper means items in the basket; 💤 means resting at home.</div>
+          <div><b>Click</b> any agent or any line in the event log to highlight it; in Replay, clicking a line jumps the map to that moment.</div>
+        </div>
+      </details>
+    </section>
+    <aside>
+      <div class="panel">
+        <div class="row">
+          <label for="mode" class="inline first">Mode</label>
+          <select id="mode">
+            <option value="live" selected>Live</option>
+            <option value="replay">Replay</option>
+          </select>
+        </div>
+        <div id="replay-controls" hidden>
+          <div class="row">
+            <select id="run-select" aria-label="Recorded run"></select>
+            <button id="refresh-runs" type="button" title="Refresh run list">↻</button>
+          </div>
+          <div class="row">
+            <button id="step-back" type="button" title="Previous event">⏮</button>
+            <button id="play" type="button">Play</button>
+            <button id="step-fwd" type="button" title="Next event">⏭</button>
+            <label for="speed" class="inline">Speed</label>
+            <select id="speed">
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+              <option value="8">8x</option>
+            </select>
+          </div>
+          <input id="scrubber" type="range" min="0" max="0" value="0" step="1" aria-label="Timeline">
+        </div>
+      </div>
+      <div class="panel">
+        <div class="clock"><span>Sim time</span><strong id="sim-time">Not started</strong></div>
+        <div class="tick" id="tick-label">Tick 0</div>
+        <div id="counters" class="counters"></div>
+      </div>
+      <div class="panel">
+        <h2>Who's doing what</h2>
+        <div id="agents" class="agents"></div>
+      </div>
+      <div id="focus" class="panel focus" hidden>
+        <div class="row between"><h2>Selected event</h2><button id="focus-close" type="button" title="Close">✕</button></div>
+        <div id="focus-body"></div>
+      </div>
+      <div class="panel grow">
+        <div class="row between"><h2>Event log</h2><small class="muted">newest first · click a line</small></div>
+        <div id="agent-filter" class="agent-filter" hidden>Showing only <span></span> <button type="button">Show everyone</button></div>
+        <div id="filters" class="filters"></div>
+        <ul id="log" class="log"></ul>
+      </div>
+    </aside>
+  </main>
+  <script src="vendor/phaser.min.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

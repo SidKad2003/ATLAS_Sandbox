@@ -1,0 +1,95 @@
+# svc-sim overrides for the pinned OpenTelemetry Demo (no upstream service code is changed).
+# - every upstream port publication is removed; only frontend-proxy is published, on 127.0.0.1
+# - container and network names use the svc-sim workload name
+# - load-generator stays deployed for baseline comparison but does not autostart
+# - flagd reads a runtime copy of the flag file so upstream files stay pristine
+# - the collector extras seam adds rait.testbed=svc-sim to all upstream telemetry
+# Paths use ${SVC_SIM_ROOT}, exported by the Makefile.
+
+networks:
+  default:
+    name: svc-sim
+
+services:
+  ad: {container_name: svc-sim-ad, ports: !reset []}
+  cart: {container_name: svc-sim-cart, ports: !reset []}
+  checkout: {container_name: svc-sim-checkout, ports: !reset []}
+  currency: {container_name: svc-sim-currency, ports: !reset []}
+  email: {container_name: svc-sim-email, ports: !reset []}
+  frontend: {container_name: svc-sim-frontend, ports: !reset []}
+  image-provider: {container_name: svc-sim-image-provider, ports: !reset []}
+  payment: {container_name: svc-sim-payment, ports: !reset []}
+  product-catalog: {container_name: svc-sim-product-catalog, ports: !reset []}
+  quote: {container_name: svc-sim-quote, ports: !reset []}
+  recommendation:
+    container_name: svc-sim-recommendation
+    ports: !reset []
+    # Upstream 3.1.0 bug: the healthcheck calls `nc`, which the recommendation image does not ship,
+    # so it never turns healthy and frontend never starts. Same TCP check using bash, which the image has.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/${RECOMMENDATION_PORT}"]
+  shipping: {container_name: svc-sim-shipping, ports: !reset []}
+  telemetry-docs: {container_name: svc-sim-telemetry-docs, ports: !reset []}
+  astronomy-db: {container_name: svc-sim-astronomy-db, ports: !reset []}
+  valkey-cart: {container_name: svc-sim-valkey-cart, ports: !reset []}
+  accounting: {container_name: svc-sim-accounting}
+  fraud-detection: {container_name: svc-sim-fraud-detection}
+  kafka: {container_name: svc-sim-kafka}
+  grafana:
+    container_name: svc-sim-grafana
+    ports: !reset []
+    # upstream limit (175M) left Grafana at its ceiling and slow to serve the UI
+    volumes:
+      # svc-sim agents dashboard, added to the upstream "Demo" dashboard folder
+      - ${SVC_SIM_ROOT}/ops/grafana/svc-sim-agents.json:/etc/grafana/provisioning/dashboards/demo/svc-sim-agents.json:ro
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+  prometheus: {container_name: svc-sim-prometheus, ports: !reset []}
+  opensearch: {container_name: svc-sim-opensearch, ports: !reset []}
+  opamp-server: {container_name: svc-sim-opamp-server}
+
+  frontend-proxy:
+    container_name: svc-sim-frontend-proxy
+    ports: !override
+      - "127.0.0.1:${ENVOY_PORT}:${ENVOY_PORT}"
+
+  load-generator:
+    container_name: svc-sim-load-generator
+    ports: !reset []
+    environment:
+      - LOCUST_AUTOSTART=${SVC_SIM_LOADGEN_AUTOSTART:-false}
+      - LOCUST_BROWSER_TRAFFIC_ENABLED=false
+
+  flagd:
+    container_name: svc-sim-flagd
+    ports: !reset []
+    volumes:
+      - ${SVC_SIM_ROOT}/runtime/flagd:/etc/flagd
+
+  flagd-ui:
+    container_name: svc-sim-flagd-ui
+    ports: !reset []
+    environment:
+      - SECRET_KEY_BASE=${SVC_SIM_FLAGD_UI_SECRET_KEY_BASE:?run make secrets}
+    volumes:
+      - ${SVC_SIM_ROOT}/runtime/flagd:/app/data
+
+  jaeger:
+    container_name: svc-sim-jaeger
+    ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+    environment:
+      - MEMORY_MAX_TRACES=10000
+
+  otel-collector:
+    container_name: svc-sim-otel-collector
+    ports: !reset []
+    volumes:
+      - ${SVC_SIM_ROOT}/ops/collector/otelcol-config-svc-sim.yml:/etc/otelcol-config-extras.yml
+      # full-fidelity telemetry files, synced to S3 by the host timer svc-sim-telemetry-sync
+      - ${SVC_SIM_ROOT}/runtime/telemetry:/svc-sim-telemetry

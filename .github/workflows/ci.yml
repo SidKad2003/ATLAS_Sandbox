@@ -1,0 +1,71 @@
+name: svc-sim CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  banned-terms:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Banned-term check (list comes from a repository secret, never from the repo)
+        env:
+          BANNED_TERMS: ${{ secrets.SVC_SIM_BANNED_TERMS }}
+        run: |
+          if [ -z "$BANNED_TERMS" ]; then echo "SVC_SIM_BANNED_TERMS secret not set; check provisioned but skipped"; exit 0; fi
+          printf '%s\n' "$BANNED_TERMS" > "$RUNNER_TEMP/banned-terms.txt"
+          BANNED_TERMS_FILE="$RUNNER_TEMP/banned-terms.txt" bash ops/scripts/banned-check.sh
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install pinned dependencies
+        run: pip install -r docker/requirements.txt
+      - name: Compile everything
+        run: python -m compileall -q lib gateway mcp_servers agents approval policy-store viz/bridge ops/scripts tests
+      - name: Unit tests (no live stack needed)
+        env: {OTEL_SDK_DISABLED: "true", PYTHONPATH: "lib:.:viz"}
+        run: |
+          mkdir -p /tmp/app && cp -r viz/bridge /tmp/app/viz_bridge
+          PYTHONPATH="lib:.:/tmp/app" python -m pytest -q -p no:cacheprovider /tmp/app/viz_bridge/test_mapping.py tests/unit
+
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - name: JS syntax
+        run: for f in viz/web/src/*.js; do node --check "$f"; done
+
+  compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned upstream and validate the merged Compose configuration
+        run: |
+          make fetch-upstream
+          mkdir -p ops/secrets runtime/flagd && for f in agent_memory_password agent_working_memory_password shop_ro_password flagd_ui_secret_key_base; do echo ci-placeholder > ops/secrets/$f; done
+          export SVC_SIM_ROOT="$PWD" SVC_SIM_FLAGD_UI_SECRET_KEY_BASE=ci-placeholder
+          UP=upstream/opentelemetry-demo
+          docker compose -p svc-sim --project-directory $UP --env-file $UP/.env \
+            $( [ -f $UP/.env.override ] && echo --env-file $UP/.env.override ) \
+            -f $UP/compose.yaml -f $UP/compose.full.yaml -f $UP/compose.observability.yaml \
+            -f compose/shop.override.yaml -f compose/shop.pins.yaml -f compose/svc-sim.yaml --profile svc-sim config --quiet
+      - name: Only localhost ports are published
+        run: |
+          export SVC_SIM_ROOT="$PWD" SVC_SIM_FLAGD_UI_SECRET_KEY_BASE=ci-placeholder
+          UP=upstream/opentelemetry-demo
+          docker compose -p svc-sim --project-directory $UP --env-file $UP/.env \
+            $( [ -f $UP/.env.override ] && echo --env-file $UP/.env.override ) \
+            -f $UP/compose.yaml -f $UP/compose.full.yaml -f $UP/compose.observability.yaml \
+            -f compose/shop.override.yaml -f compose/shop.pins.yaml -f compose/svc-sim.yaml --profile svc-sim config --format json \
+          | python3 -c "import json,sys; d=json.load(sys.stdin); bad=[(n,p) for n,s in d['services'].items() for p in (s.get('ports') or []) if p.get('host_ip')!='127.0.0.1']; print('published:', [(n,p.get('published')) for n,s in d['services'].items() for p in (s.get('ports') or [])]); sys.exit(1 if bad else 0)"

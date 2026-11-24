@@ -1,0 +1,350 @@
+# svc-sim agent layer. All services use the svc-sim profile and the svc-sim/py image
+# (built by `make build`). UIs bind to 127.0.0.1 only; reach them through an SSM port-forward.
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "5m", max-file: "2"}
+
+x-py-env: &py-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_GRPC}
+  KAFKA_ADDR: ${KAFKA_ADDR}
+  KAFKA_TOPIC: ${KAFKA_TOPIC}
+  LLM_GATEWAY_URL: http://llm-gateway:8000
+  POLICY_STORE_URL: http://policy-store:8000
+  APPROVAL_SERVICE_URL: http://approval-service:8000
+  SHOP_MCP_URL: http://shop-mcp:8000
+  STORE_OPS_MCP_URL: http://store-ops-mcp:8000
+  OBSERVABILITY_MCP_URL: http://observability-mcp:8000
+  AGENT_MEMORY_HOST: agent-memory
+  AGENT_WORKING_MEMORY_HOST: agent-working-memory
+  EMBED_DIM: "64"
+  LOG_LEVEL: INFO
+
+x-py: &py
+  image: svc-sim/py:${SVC_SIM_VERSION:-dev}
+  pull_policy: never
+  profiles: [svc-sim]
+  restart: unless-stopped
+  logging: *logging
+  secrets: [agent_memory_password, agent_working_memory_password]
+  environment: *py-env
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz',timeout=3).status==200 else 1)"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 20s
+  deploy:
+    resources:
+      limits: {memory: 192M, cpus: "1.0"}
+  # Hardening: non-root image user, no Linux capabilities, no privilege escalation, read-only root filesystem.
+  read_only: true
+  tmpfs: ["/tmp:size=32m"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-shopper: &shopper
+  <<: *py
+  command: ["uvicorn", "agents.shopper:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+  deploy:
+    resources:
+      limits: {memory: 160M, cpus: "0.5"}
+  depends_on:
+    llm-gateway: {condition: service_healthy}
+    shop-mcp: {condition: service_healthy}
+    policy-store: {condition: service_healthy}
+
+secrets:
+  agent_memory_password:
+    file: ${SVC_SIM_ROOT}/ops/secrets/agent_memory_password
+  agent_working_memory_password:
+    file: ${SVC_SIM_ROOT}/ops/secrets/agent_working_memory_password
+  shop_ro_password:
+    file: ${SVC_SIM_ROOT}/ops/secrets/shop_ro_password
+
+volumes:
+  svc-sim-agent-memory:
+    name: svc-sim-agent-memory
+  svc-sim-policy-store:
+    name: svc-sim-policy-store
+
+services:
+  # ---------- storage ----------
+  agent-memory:
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
+    container_name: svc-sim-agent-memory
+    profiles: [svc-sim]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: svc_sim
+      POSTGRES_USER: svc_sim
+      POSTGRES_PASSWORD_FILE: /run/secrets/agent_memory_password
+    secrets: [agent_memory_password]
+    command: ["postgres", "-c", "shared_buffers=96MB", "-c", "max_connections=80"]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - svc-sim-agent-memory:/var/lib/postgresql/data
+      - ${SVC_SIM_ROOT}/ops/sql/agent-memory-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U svc_sim -d svc_sim"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: {memory: 512M}
+
+  agent-working-memory:
+    image: valkey/valkey:8-alpine@sha256:9971099af41c36e887aabdfe22b80c0fe45df949163dfc9cb434febc57cfc3fc
+    container_name: svc-sim-agent-working-memory
+    profiles: [svc-sim]
+    restart: unless-stopped
+    logging: *logging
+    secrets: [agent_working_memory_password]
+    security_opt: ["no-new-privileges:true"]
+    entrypoint: ["sh", "-c", "exec valkey-server --requirepass \"$$(cat /run/secrets/agent_working_memory_password)\" --maxmemory 96mb --maxmemory-policy allkeys-lru --save ''"]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$(cat /run/secrets/agent_working_memory_password)\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits: {memory: 128M}
+
+  policy-store:
+    <<: *py
+    container_name: svc-sim-policy-store
+    command: ["uvicorn", "policy_store.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    environment:
+      <<: *py-env
+      POLICY_STORE_BACKEND: local
+      POLICY_STORE_ROOT: /data
+      POLICY_STORE_SEED: /app/policy_store/seed
+      # When approved: POLICY_STORE_BACKEND=s3, POLICY_STORE_BUCKET, POLICY_STORE_PREFIX=svc-sim/policy-store/
+    volumes:
+      - svc-sim-policy-store:/data
+    deploy:
+      resources:
+        limits: {memory: 96M}
+
+  # ---------- one-shot init ----------
+  svc-sim-init:
+    <<: *py
+    container_name: svc-sim-init
+    restart: "no"
+    command: ["python", "/app/ops/init_kafka.py"]
+    healthcheck: {disable: true}
+    depends_on:
+      kafka: {condition: service_healthy}
+
+  svc-sim-shop-ro-init:
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
+    container_name: svc-sim-shop-ro-init
+    profiles: [svc-sim]
+    restart: "no"
+    logging: *logging
+    secrets: [shop_ro_password]
+    environment:
+      PGHOST: ${POSTGRES_HOST}
+      PGUSER: postgres
+      PGDATABASE: astronomy_db
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ${SVC_SIM_ROOT}/ops/sql/shop-readonly.sh:/shop-readonly.sh:ro
+    entrypoint: ["sh", "/shop-readonly.sh"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {memory: 64M}
+    depends_on:
+      astronomy-db: {condition: service_healthy}
+
+  # ---------- agent platform ----------
+  llm-gateway:
+    <<: *py
+    container_name: svc-sim-llm-gateway
+    command: ["uvicorn", "gateway.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    environment:
+      <<: *py-env
+      LLM_PROVIDER: ${SVC_SIM_LLM_PROVIDER:-mock}
+      BEDROCK_ENABLED: "false"
+      AWS_REGION: eu-west-2
+      # Mock default. Set a tight value (e.g. 200000) for any Bedrock run.
+      LLM_RUN_TOKEN_BUDGET: "${SVC_SIM_RUN_TOKEN_BUDGET:-10000000}"
+      LLM_RUN_CALL_CAP: "${SVC_SIM_RUN_CALL_CAP:-5000}"
+      LLM_RATE_PER_AGENT_PER_MIN: "${SVC_SIM_RATE_PER_AGENT_PER_MIN:-240}"
+    deploy:
+      resources:
+        limits: {memory: 256M}
+    depends_on:
+      agent-working-memory: {condition: service_healthy}
+
+  shop-mcp:
+    <<: *py
+    container_name: svc-sim-shop-mcp
+    command: ["python", "-m", "mcp_servers.shop_mcp"]
+    environment:
+      <<: *py-env
+      FRONTEND_PROXY_URL: http://frontend-proxy:${ENVOY_PORT}
+    depends_on:
+      frontend-proxy: {condition: service_healthy}
+
+  store-ops-mcp:
+    <<: *py
+    container_name: svc-sim-store-ops-mcp
+    command: ["python", "-m", "mcp_servers.store_ops_mcp"]
+    secrets: [agent_memory_password, agent_working_memory_password, shop_ro_password]
+    environment:
+      <<: *py-env
+      PRODUCT_CATALOG_ADDR: ${PRODUCT_CATALOG_ADDR}
+      RECOMMENDATION_ADDR: ${RECOMMENDATION_ADDR}
+      CART_ADDR: ${CART_ADDR}
+      SHIPPING_ADDR: ${SHIPPING_ADDR}
+      CURRENCY_ADDR: ${CURRENCY_ADDR}
+      SHOP_DB_HOST: ${POSTGRES_HOST}
+      SHOP_DB_NAME: astronomy_db
+      SHOP_DB_USER: svc_sim_ro
+      FRAUD_APPROVAL_THRESHOLD_USD: "${SVC_SIM_FRAUD_APPROVAL_THRESHOLD_USD:-100}"
+    depends_on:
+      agent-memory: {condition: service_healthy}
+      svc-sim-shop-ro-init: {condition: service_completed_successfully}
+      svc-sim-init: {condition: service_completed_successfully}
+      product-catalog: {condition: service_started}
+
+  observability-mcp:
+    <<: *py
+    container_name: svc-sim-observability-mcp
+    command: ["python", "-m", "mcp_servers.observability_mcp"]
+    environment:
+      <<: *py-env
+      JAEGER_URL: http://${JAEGER_HOST}:${JAEGER_UI_PORT}/jaeger/ui
+      PROMETHEUS_URL: http://${PROMETHEUS_ADDR}
+      OPENSEARCH_URL: http://opensearch:9200
+      FLAGD_FILE: /flags/demo.flagd.json
+      FLAGD_OFREP_URL: http://${FLAGD_HOST}:${FLAGD_OFREP_PORT}
+    volumes:
+      - ${SVC_SIM_ROOT}/runtime/flagd:/flags:ro
+    depends_on:
+      agent-memory: {condition: service_healthy}
+      approval-service: {condition: service_healthy}
+      jaeger: {condition: service_started}
+      prometheus: {condition: service_started}
+
+  approval-service:
+    <<: *py
+    container_name: svc-sim-approval-service
+    command: ["uvicorn", "approval.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    ports:
+      - "127.0.0.1:8090:8000"
+    depends_on:
+      agent-memory: {condition: service_healthy}
+      svc-sim-init: {condition: service_completed_successfully}
+
+  # ---------- agents ----------
+  conductor:
+    <<: *py
+    container_name: svc-sim-conductor
+    command: ["uvicorn", "agents.conductor:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    environment:
+      <<: *py-env
+      FLAGD_FILE: /flags/demo.flagd.json
+      SHOPPER_URLS: http://shopper-1:8000,http://shopper-2:8000,http://shopper-3:8000,http://shopper-4:8000,http://shopper-5:8000
+      ASSISTANT_URL: http://assistant:8000
+      FRAUD_URL: http://fraud-review:8000
+      SRE_URL: http://sre-ops:8000
+    volumes:
+      - ${SVC_SIM_ROOT}/runtime/flagd:/flags
+    depends_on:
+      agent-memory: {condition: service_healthy}
+      shopper-1: {condition: service_healthy}
+      shopper-2: {condition: service_healthy}
+      shopper-3: {condition: service_healthy}
+      shopper-4: {condition: service_healthy}
+      shopper-5: {condition: service_healthy}
+      assistant: {condition: service_healthy}
+      fraud-review: {condition: service_healthy}
+      sre-ops: {condition: service_healthy}
+
+  shopper-1: {<<: *shopper, container_name: svc-sim-shopper-1, hostname: shopper-1}
+  shopper-2: {<<: *shopper, container_name: svc-sim-shopper-2, hostname: shopper-2}
+  shopper-3: {<<: *shopper, container_name: svc-sim-shopper-3, hostname: shopper-3}
+  shopper-4: {<<: *shopper, container_name: svc-sim-shopper-4, hostname: shopper-4}
+  shopper-5: {<<: *shopper, container_name: svc-sim-shopper-5, hostname: shopper-5}
+
+  assistant:
+    <<: *py
+    container_name: svc-sim-assistant
+    command: ["uvicorn", "agents.assistant:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    deploy:
+      resources:
+        limits: {memory: 256M}
+    depends_on:
+      llm-gateway: {condition: service_healthy}
+      store-ops-mcp: {condition: service_healthy}
+      policy-store: {condition: service_healthy}
+
+  fraud-review:
+    <<: *py
+    container_name: svc-sim-fraud-review
+    command: ["uvicorn", "agents.fraud:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    deploy:
+      resources:
+        limits: {memory: 256M}
+    environment:
+      <<: *py-env
+      FRAUD_APPROVAL_THRESHOLD_USD: "${SVC_SIM_FRAUD_APPROVAL_THRESHOLD_USD:-100}"
+    depends_on:
+      llm-gateway: {condition: service_healthy}
+      store-ops-mcp: {condition: service_healthy}
+      approval-service: {condition: service_healthy}
+
+  sre-ops:
+    <<: *py
+    container_name: svc-sim-sre-ops
+    command: ["uvicorn", "agents.sre:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    deploy:
+      resources:
+        limits: {memory: 256M}
+    depends_on:
+      llm-gateway: {condition: service_healthy}
+      observability-mcp: {condition: service_healthy}
+
+  # ---------- visualisation (read-only projection; the sim never depends on it) ----------
+  sim-viz-bridge:
+    <<: *py
+    container_name: svc-sim-sim-viz-bridge
+    command: ["uvicorn", "viz_bridge.app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"]
+    environment:
+      <<: *py-env
+      JAEGER_URL: http://${JAEGER_HOST}:${JAEGER_UI_PORT}/jaeger/ui
+    depends_on:
+      agent-memory: {condition: service_healthy}
+      svc-sim-init: {condition: service_completed_successfully}
+
+  sim-viz:
+    image: svc-sim/viz:${SVC_SIM_VERSION:-dev}
+    pull_policy: never
+    container_name: svc-sim-sim-viz
+    profiles: [svc-sim]
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "127.0.0.1:8091:8080"
+    read_only: true
+    tmpfs: ["/tmp:size=16m", "/var/cache/nginx:size=16m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: {memory: 64M}
+    depends_on:
+      sim-viz-bridge: {condition: service_healthy}

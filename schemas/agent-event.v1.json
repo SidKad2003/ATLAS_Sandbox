@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/schemas/svc-sim/agent-event.v1.json",
+  "title": "svc-sim agent event (v1)",
+  "description": "One record per agent step, published to Kafka topic agent.events. Consumed by sim-viz-bridge and stored for replay.",
+  "type": "object",
+  "required": ["schema", "event_id", "run_id", "seq", "sim_tick", "sim_time", "wall_time", "agent", "kind", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "agent-event.v1" },
+    "event_id": { "type": "string", "description": "UUIDv5 derived from run_id, agent id and seq, so the same seed gives the same ids." },
+    "run_id": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 0, "description": "Per-agent, per-run sequence number." },
+    "sim_tick": { "type": "integer", "minimum": 0 },
+    "sim_time": { "type": "string", "description": "ISO 8601 simulated clock time." },
+    "wall_time": { "type": "string", "description": "ISO 8601 UTC wall-clock time. Excluded from determinism checks." },
+    "agent": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["conductor", "shopper", "assistant", "fraud", "sre", "approval-service", "mcp-server", "human"] },
+        "name": { "type": "string" }
+      }
+    },
+    "kind": {
+      "enum": [
+        "run.started", "run.finished", "clock.tick",
+        "plan.created", "thought",
+        "tool.call", "tool.result",
+        "chat.message",
+        "handoff.sent", "handoff.received",
+        "memory.write", "memory.reflect",
+        "approval.requested", "approval.decided",
+        "fault.injected", "fault.cleared",
+        "incident.opened",
+        "order.placed", "order.held", "order.released",
+        "guardrail.flag",
+        "error"
+      ]
+    },
+    "location": {
+      "type": ["string", "null"],
+      "description": "Optional hint for sim-viz: a place id such as aisle:telescopes, help-desk, checkout, warehouse, shipping-dock, fraud-office, ops-room, approval-desk, entrance, home."
+    },
+    "payload": { "type": "object" },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trace_id": { "type": "string" },
+        "span_id": { "type": "string" }
+      }
+    },
+    "attributes": {
+      "type": "object",
+      "description": "rait.* attributes. rait.testbed is always svc-sim.",
+      "properties": {
+        "rait.testbed": { "const": "svc-sim" },
+        "rait.run_id": { "type": "string" }
+      }
+    }
+  }
+}

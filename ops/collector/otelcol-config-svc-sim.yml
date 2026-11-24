@@ -1,0 +1,52 @@
+# svc-sim collector layer, mounted over the upstream extras seam (/etc/otelcol-config-extras.yml).
+# Arrays are replaced, not merged, so upstream processor and exporter lists are repeated in full.
+# Verified against OpenTelemetry Demo 3.1.0 (src/otel-collector/otelcol-config*.yml).
+
+processors:
+  resource/svc_sim:
+    attributes:
+      - key: rait.testbed
+        value: svc-sim
+        action: upsert
+
+connectors:
+  # Per-agent span metrics: adds agent, tool and operation as labels on traces_span_metrics_*.
+  span_metrics:
+    dimensions:
+      - name: gen_ai.agent.name
+      - name: gen_ai.tool.name
+      - name: gen_ai.operation.name
+
+exporters:
+  # Full-fidelity copy of all telemetry (not sampled, not capped like Jaeger's in-memory store).
+  # Files rotate locally; the host timer svc-sim-telemetry-sync uploads them to S3 every 15 minutes.
+  file/svc_sim_traces:
+    path: /svc-sim-telemetry/traces.jsonl.zst
+    format: json
+    compression: zstd
+    rotation: {max_megabytes: 50, max_days: 3, max_backups: 200}
+  file/svc_sim_metrics:
+    path: /svc-sim-telemetry/metrics.jsonl.zst
+    format: json
+    compression: zstd
+    rotation: {max_megabytes: 50, max_days: 3, max_backups: 200}
+  file/svc_sim_logs:
+    path: /svc-sim-telemetry/logs.jsonl.zst
+    format: json
+    compression: zstd
+    rotation: {max_megabytes: 50, max_days: 3, max_backups: 200}
+
+# RAIT Connector export: DISABLED until the operator supplies the endpoint and it is approved.
+# To enable, add an otlp_grpc/rait exporter here and append it to each pipeline's exporters list.
+
+service:
+  pipelines:
+    traces:
+      processors: [resource_detection, memory_limiter, transform/sanitize_spans, gen_ai_normalizer, transform/redact_sensitive_data, redaction, resource/svc_sim]
+      exporters: [debug, otlp_grpc/jaeger, span_metrics, file/svc_sim_traces]
+    metrics:
+      processors: [resource_detection, memory_limiter, resource/svc_sim]
+      exporters: [debug, otlp_http/prometheus, file/svc_sim_metrics]
+    logs:
+      processors: [resource_detection, memory_limiter, transform/sanitize_logs, resource/svc_sim]
+      exporters: [debug, opensearch, file/svc_sim_logs]

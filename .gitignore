@@ -1,0 +1,12 @@
+# pinned upstream checkout is fetched by `make fetch-upstream`, not committed
+upstream/opentelemetry-demo/
+# generated local secrets (mode 0600) and runtime state
+ops/secrets/
+runtime/
+.env
+.env.*
+.dev.vars
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/

@@ -1,0 +1,9 @@
+**/__pycache__
+**/*.pyc
+.git
+runtime
+ops/secrets
+docs
+viz/web
+upstream/opentelemetry-demo/*
+!upstream/opentelemetry-demo/pb

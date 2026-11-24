@@ -1,0 +1,144 @@
+{
+  "uid": "svc-sim-agents",
+  "title": "svc-sim agents",
+  "description": "What each agent did in a run: actions, tool calls, failures, LLM tokens and latency, with links to the agent's traces in Jaeger.",
+  "tags": ["svc-sim", "agents", "gen_ai"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "run", "label": "Run", "type": "query",
+        "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+        "query": {"query": "label_values(svc_sim_agent_events_total, rait_run_id)", "refId": "run"},
+        "definition": "label_values(svc_sim_agent_events_total, rait_run_id)",
+        "refresh": 2, "sort": 0, "multi": false, "includeAll": true, "allValue": ".*",
+        "current": {"text": "All", "value": "$__all"}
+      },
+      {
+        "name": "agent", "label": "Agent", "type": "query",
+        "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+        "query": {"query": "label_values(svc_sim_agent_events_total{rait_run_id=~\"$run\"}, gen_ai_agent_name)", "refId": "agent"},
+        "definition": "label_values(svc_sim_agent_events_total{rait_run_id=~\"$run\"}, gen_ai_agent_name)",
+        "refresh": 2, "sort": 1, "multi": true, "includeAll": true, "allValue": ".*",
+        "current": {"text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text", "title": "How to read this", "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+      "options": {"mode": "markdown", "content": "Pick a **Run** (ids from `make run-status` or the sim-viz run list) and optionally an **Agent**. Set the time range to cover the run. Counts are per agent action as published on `agent.events`; tokens and latency come from `llm-gateway`; tool latency comes from span metrics. **Click an agent name in the tables** to open that agent's traces in Jaeger. Guide: `docs/TELEMETRY-GUIDE.md`."}
+    },
+    {"type": "stat", "title": "Orders", "gridPos": {"h": 4, "w": 3, "x": 0, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_event_kind=\"order.placed\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "green"}}}},
+    {"type": "stat", "title": "Chat messages", "gridPos": {"h": 4, "w": 3, "x": 3, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_event_kind=\"chat.message\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "purple"}}}},
+    {"type": "stat", "title": "Fraud handoffs", "gridPos": {"h": 4, "w": 3, "x": 6, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_event_kind=\"handoff.sent\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "#8e44ad"}}}},
+    {"type": "stat", "title": "Human approvals requested", "gridPos": {"h": 4, "w": 3, "x": 9, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_event_kind=\"approval.requested\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "orange"}}}},
+    {"type": "stat", "title": "Incidents", "gridPos": {"h": 4, "w": 3, "x": 12, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_event_kind=\"incident.opened\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "red"}}}},
+    {"type": "stat", "title": "Guardrail flags", "gridPos": {"h": 4, "w": 3, "x": 15, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_event_kind=\"guardrail.flag\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "dark-red"}}}},
+    {"type": "stat", "title": "Failed tool calls", "gridPos": {"h": 4, "w": 3, "x": 18, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", svc_sim_outcome=\"failed\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "red"}}}},
+    {"type": "stat", "title": "LLM tokens", "gridPos": {"h": 4, "w": 3, "x": 21, "y": 4},
+     "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+     "targets": [{"refId": "A", "expr": "sum(increase(svc_sim_llm_tokens_total{rait_run_id=~\"$run\"}[$__range]))"}],
+     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "blue"}}}},
+    {
+      "type": "timeseries", "title": "Agent actions per minute (by agent)", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [{"refId": "A", "legendFormat": "{{gen_ai_agent_name}}",
+        "expr": "sum by (gen_ai_agent_name) (rate(svc_sim_agent_events_total{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\", svc_sim_event_kind=~\"tool.call|chat.message|order.placed|handoff.sent|handoff.received|incident.opened|guardrail.flag|approval.requested\"}[1m])) * 60"}],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2, "fillOpacity": 8}}}
+    },
+    {
+      "type": "timeseries", "title": "LLM tokens per minute (by agent and type)", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [{"refId": "A", "legendFormat": "{{gen_ai_agent_name}} {{gen_ai_token_type}}",
+        "expr": "sum by (gen_ai_agent_name, gen_ai_token_type) (rate(svc_sim_llm_tokens_total{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\"}[1m])) * 60"}],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2, "fillOpacity": 8}}}
+    },
+    {
+      "type": "table", "title": "What each agent did (event kinds per agent) - click an agent for its traces", "gridPos": {"h": 10, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [{"refId": "A", "instant": true, "format": "table",
+        "expr": "sum by (gen_ai_agent_name, svc_sim_agent_type, svc_sim_event_kind) (increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\", svc_sim_event_kind!=\"clock.tick\"}[$__range])) > 0"}],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"gen_ai_agent_name": "Agent", "svc_sim_agent_type": "Role", "svc_sim_event_kind": "Action", "Value": "Count"}}},
+        {"id": "sortBy", "options": {"sort": [{"field": "Agent"}]}}
+      ],
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": [
+        {"matcher": {"id": "byName", "options": "Agent"}, "properties": [{"id": "links", "value": [
+          {"title": "Open ${__data.fields.Agent} traces in Jaeger", "targetBlank": true,
+           "url": "/jaeger/ui/search?service=svc-sim-${__data.fields.Role}&tags=%7B%22gen_ai.agent.name%22%3A%22${__data.fields.Agent}%22%7D&lookback=6h&limit=50"}]}]}
+      ]}
+    },
+    {
+      "type": "table", "title": "Tool calls per agent (and failures)", "gridPos": {"h": 10, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [
+        {"refId": "Calls", "instant": true, "format": "table",
+         "expr": "sum by (gen_ai_agent_name, gen_ai_tool_name) (increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\", svc_sim_event_kind=\"tool.call\"}[$__range])) > 0"},
+        {"refId": "Failures", "instant": true, "format": "table",
+         "expr": "sum by (gen_ai_agent_name, gen_ai_tool_name) (increase(svc_sim_agent_events_total{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\", svc_sim_outcome=\"failed\"}[$__range]))"}
+      ],
+      "transformations": [
+        {"id": "merge", "options": {}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"gen_ai_agent_name": "Agent", "gen_ai_tool_name": "Tool", "Value #Calls": "Calls", "Value #Failures": "Failed"}}},
+        {"id": "sortBy", "options": {"sort": [{"field": "Calls", "desc": true}]}}
+      ],
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": [
+        {"matcher": {"id": "byName", "options": "Failed"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-text"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "text", "value": null}, {"color": "red", "value": 1}]}}]}
+      ]}
+    },
+    {
+      "type": "bargauge", "title": "LLM tokens by agent (run total)", "gridPos": {"h": 8, "w": 8, "x": 0, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [{"refId": "A", "instant": true, "legendFormat": "{{gen_ai_agent_name}}",
+        "expr": "sort_desc(sum by (gen_ai_agent_name) (increase(svc_sim_llm_tokens_total{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\"}[$__range])))"}],
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "type": "timeseries", "title": "LLM call latency p95 by agent", "gridPos": {"h": 8, "w": 8, "x": 8, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [{"refId": "A", "legendFormat": "{{gen_ai_agent_name}}",
+        "expr": "histogram_quantile(0.95, sum by (le, gen_ai_agent_name) (rate(gen_ai_client_operation_duration_seconds_bucket{rait_run_id=~\"$run\", gen_ai_agent_name=~\"$agent\"}[5m])))"}],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "type": "timeseries", "title": "Tool call latency p95 by agent and tool (span metrics)", "gridPos": {"h": 8, "w": 8, "x": 16, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "webstore-metrics"},
+      "targets": [{"refId": "A", "legendFormat": "{{gen_ai_agent_name}} {{gen_ai_tool_name}}",
+        "expr": "histogram_quantile(0.95, sum by (le, gen_ai_agent_name, gen_ai_tool_name) (rate(traces_span_metrics_duration_milliseconds_bucket{gen_ai_operation_name=\"execute_tool\", gen_ai_agent_name=~\"$agent\"}[5m])))"}],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "type": "table", "title": "Run timeline: one trace per sim-clock tick (click to open the whole tick in Explore)", "gridPos": {"h": 10, "w": 24, "x": 0, "y": 34},
+      "datasource": {"type": "jaeger", "uid": "webstore-traces"},
+      "targets": [{"refId": "A", "queryType": "search", "service": "svc-sim-conductor", "operation": "", "tags": "rait.run_id=$run", "limit": 100}]
+    }
+  ]
+}
