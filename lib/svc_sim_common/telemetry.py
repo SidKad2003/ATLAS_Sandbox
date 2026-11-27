@@ -1,6 +1,6 @@
 """OpenTelemetry setup shared by all svc-sim services.
 
-Every span carries rait.testbed=svc-sim (resource) and rait.run_id (span attribute,
+Every span carries atlas.testbed=svc-sim (resource) and atlas.run_id (span attribute,
 taken from the current run context). GenAI semantic convention helpers live here too.
 """
 from __future__ import annotations
@@ -29,13 +29,13 @@ log = logging.getLogger("svc_sim.telemetry")
 
 
 class _RunIdProcessor(SpanProcessor):
-    """Stamps rait.run_id on every span from the run context or baggage."""
+    """Stamps atlas.run_id on every span from the run context or baggage."""
 
     def on_start(self, span, parent_context=None):  # type: ignore[override]
-        run_id = _run_id.get() or baggage.get_baggage("rait.run_id", parent_context)
+        run_id = _run_id.get() or baggage.get_baggage("atlas.run_id", parent_context)
         if run_id:
-            span.set_attribute("rait.run_id", str(run_id))
-        span.set_attribute("rait.testbed", TESTBED)
+            span.set_attribute("atlas.run_id", str(run_id))
+        span.set_attribute("atlas.testbed", TESTBED)
         # The acting agent, propagated as baggage, labels every svc-sim span in its step (incl. MCP servers).
         agent_name = baggage.get_baggage("gen_ai.agent.name", parent_context)
         if agent_name:
@@ -62,7 +62,7 @@ def setup_telemetry(service_name: str) -> trace.Tracer:
             {
                 "service.name": service_name,
                 "service.namespace": TESTBED,
-                "rait.testbed": TESTBED,
+                "atlas.testbed": TESTBED,
                 "deployment.environment.name": os.environ.get("SVC_SIM_ENVIRONMENT", "testbed"),
             }
         )
@@ -101,7 +101,7 @@ def current_run_id() -> str | None:
 def run_context(run_id: str) -> Iterator[None]:
     """Set the run id for spans and propagate it as baggage to downstream services."""
     token_var = _run_id.set(run_id)
-    ctx = baggage.set_baggage("rait.run_id", run_id)
+    ctx = baggage.set_baggage("atlas.run_id", run_id)
     token_ctx = context.attach(ctx)
     try:
         yield

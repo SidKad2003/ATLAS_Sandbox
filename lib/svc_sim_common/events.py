@@ -107,7 +107,7 @@ class EventPublisher:
             "location": location,
             "payload": payload or {},
             "trace": trace_ids(),
-            "attributes": {"rait.testbed": TESTBED, "rait.run_id": run_id},
+            "attributes": {"atlas.testbed": TESTBED, "atlas.run_id": run_id},
         }
         p = payload or {}
         ok = p.get("ok")
@@ -118,7 +118,7 @@ class EventPublisher:
             "svc_sim.event.kind": kind,
             "gen_ai.tool.name": str(p.get("tool") or ""),
             "svc_sim.outcome": "" if ok is None else ("ok" if ok else "failed"),
-            "rait.run_id": run_id,
+            "atlas.run_id": run_id,
         })
         try:
             await KafkaBus.send(TOPIC_EVENTS, event, key=self.agent["id"])

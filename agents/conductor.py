@@ -172,7 +172,7 @@ class Conductor:
                     t0 = asyncio.get_running_loop().time()
                     sim_time = (start + timedelta(seconds=tick * req.tick_sim_seconds)).isoformat()
                     # each tick is its own root trace (not a child of the POST /runs request), carrying run id baggage
-                    root = otel_baggage.set_baggage("rait.run_id", run_id, context=OtelContext())
+                    root = otel_baggage.set_baggage("atlas.run_id", run_id, context=OtelContext())
                     root = otel_baggage.set_baggage("svc_sim.sim_tick", str(tick), context=root)
                     root = otel_baggage.set_baggage("svc_sim.sim_time", sim_time, context=root)
                     with tracer.start_as_current_span(f"conductor.tick {tick}", context=root) as span:

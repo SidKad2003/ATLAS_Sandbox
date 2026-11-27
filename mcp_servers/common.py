@@ -2,7 +2,7 @@
 
 Each server is a FastMCP app over streamable HTTP (stateless, JSON responses) at /mcp, with
 GET /healthz, wrapped in OTel ASGI middleware so the caller's traceparent and baggage
-(rait.run_id) continue into the server. Every tool call opens a server span
+(atlas.run_id) continue into the server. Every tool call opens a server span
 "execute_tool <name>" carrying the gen_ai.* tool attributes.
 """
 import functools

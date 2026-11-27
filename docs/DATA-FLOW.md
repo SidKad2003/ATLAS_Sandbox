@@ -21,7 +21,7 @@ What data exists, where it lives, and what leaves `svc-sim-host`. All data is sy
 | Flow | Destination | State | Content |
 |---|---|---|---|
 | LLM calls | Amazon Bedrock (eu-west-2) | **Disabled.** Mock provider runs locally | Prompts and tool schemas, when enabled in Phase 6 |
-| Telemetry export | RAIT Connector | **Disabled.** Exporter commented out | OTLP with `rait.*` attributes, when enabled |
+| Telemetry export | OTLP Connector | **Disabled.** Exporter commented out | OTLP with `atlas.*` attributes, when enabled |
 | Backups (`make backup`) | `s3://your-s3-bucket/svc-sim/backups/<UTC timestamp>/`, SSE-S3, same AWS account | **On demand** (first run 24 Nov 2026) | DB dumps, policy-store, flag file, Prometheus store, Jaeger traces and OpenSearch logs as gzipped JSON, manifest and checksums. No passwords. |
 | Evidence | `s3://your-s3-bucket/svc-sim/evidence/` | Done once (Phase 3 and 4 screenshots, recording) | Images and video of the synthetic run |
 | Code and upstream | GitHub (read-only deploy key, SSH over 443) | Pull only | Source code |

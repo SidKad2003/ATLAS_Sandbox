@@ -62,7 +62,7 @@ DURATION = _meter.create_histogram("gen_ai.client.operation.duration", unit="s",
 def _metric_attrs(req: "ChatRequest", model: str) -> dict[str, str]:
     return {"gen_ai.agent.name": req.agent.name or req.agent.id, "svc_sim.agent.id": req.agent.id,
             "svc_sim.agent.type": req.agent.type, "gen_ai.operation.name": "chat", "gen_ai.provider.name": provider.name,
-            "gen_ai.request.model": model, "svc_sim.llm.purpose": req.purpose, "rait.run_id": req.run_id}
+            "gen_ai.request.model": model, "svc_sim.llm.purpose": req.purpose, "atlas.run_id": req.run_id}
 
 
 class ChatRequest(BaseModel):

@@ -5,7 +5,7 @@
 processors:
   resource/svc_sim:
     attributes:
-      - key: rait.testbed
+      - key: atlas.testbed
         value: svc-sim
         action: upsert
 
@@ -36,8 +36,8 @@ exporters:
     compression: zstd
     rotation: {max_megabytes: 50, max_days: 3, max_backups: 200}
 
-# RAIT Connector export: DISABLED until the operator supplies the endpoint and it is approved.
-# To enable, add an otlp_grpc/rait exporter here and append it to each pipeline's exporters list.
+# OTLP Connector export: DISABLED until the operator supplies the endpoint and it is approved.
+# To enable, add an otlp_grpc/external exporter here and append it to each pipeline's exporters list.
 
 service:
   pipelines:

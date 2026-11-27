@@ -34,7 +34,7 @@ flowchart LR
   subgraph OBS[Observability and visualisation]
     OC[otel-collector] --> J[jaeger] & P[prometheus] & OS[opensearch]
     VB[sim-viz-bridge] --> VZ[sim-viz<br/>Phaser 3]
-    RC[RAIT Connector<br/>disabled]
+    RC[OTLP Connector<br/>disabled]
   end
 
   C -- tick, directives --> S & A & F & R
@@ -55,7 +55,7 @@ flowchart LR
   S & A & F & R & C -. agent.events .-> BUS
   BUS -. agent.events .-> VB
   VB -. spans .-> J
-  AL & AP -. OTLP gen_ai.* rait.* .-> OC
+  AL & AP -. OTLP gen_ai.* atlas.* .-> OC
   OC -. disabled .-> RC
 ```
 
@@ -74,7 +74,7 @@ flowchart LR
 
 ## Telemetry
 
-Every svc-sim span carries `rait.testbed=svc-sim` and `rait.run_id`. The collector layer adds `rait.testbed=svc-sim` to all upstream telemetry too.
+Every svc-sim span carries `atlas.testbed=svc-sim` and `atlas.run_id`. The collector layer adds `atlas.testbed=svc-sim` to all upstream telemetry too.
 Each Conductor tick is a root trace; agent steps, MCP calls and shop service calls in that tick are children, so one shopper action can be followed from `invoke_agent` through `execute_tool`, `shop-mcp`, `frontend-proxy` and into `checkout`, `payment` and `shipping`.
 
 ## Data flow: what leaves the host
@@ -84,7 +84,7 @@ Nothing leaves the host during a run. The only outbound data is on-demand backup
 | Path | State |
 |---|---|
 | LLM calls | Mock provider, in-process. Bedrock provider disabled (`BEDROCK_ENABLED=false`). |
-| RAIT Connector OTLP export | Exporter commented out in `ops/collector/otelcol-config-svc-sim.yml` |
+| OTLP Connector OTLP export | Exporter commented out in `ops/collector/otelcol-config-svc-sim.yml` |
 | Backups | `make backup` to `s3://your-s3-bucket/svc-sim/backups/`, on demand |
 | policy-store | Local volume. S3 backend available but not enabled |
 | UIs | Bound to `127.0.0.1`; reached only through SSM or SSH port-forwarding |

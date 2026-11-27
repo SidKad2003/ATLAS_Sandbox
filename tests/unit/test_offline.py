@@ -47,7 +47,7 @@ def test_event_schema_is_valid_json_schema():
     jsonschema.Draft202012Validator.check_schema(schema)
     event = {"schema": "agent-event.v1", "event_id": "x", "run_id": "r", "seq": 0, "sim_tick": 1, "sim_time": "2026-12-01T23:45:30",
              "wall_time": "2026-11-24T12:00:00Z", "agent": {"id": "shopper-1", "type": "shopper"}, "kind": "order.placed",
-             "payload": {}, "attributes": {"rait.testbed": "svc-sim", "rait.run_id": "r"}}
+             "payload": {}, "attributes": {"atlas.testbed": "svc-sim", "atlas.run_id": "r"}}
     jsonschema.validate(event, schema)
 
 

@@ -21,7 +21,7 @@
 - `flagd` and `flagd-ui` read `runtime/flagd/demo.flagd.json`, a copy of the upstream file, so upstream files stay untouched.
 - `flagd-ui` `SECRET_KEY_BASE` replaced with a locally generated value (upstream ships a fixed public value).
 - `jaeger` memory limit 800M and `MEMORY_MAX_TRACES=10000` (upstream 1200M / 25000).
-- Collector extras seam (`/etc/otelcol-config-extras.yml`) replaced with `ops/collector/otelcol-config-svc-sim.yml`, which adds `rait.testbed=svc-sim` to all telemetry.
+- Collector extras seam (`/etc/otelcol-config-extras.yml`) replaced with `ops/collector/otelcol-config-svc-sim.yml`, which adds `atlas.testbed=svc-sim` to all telemetry.
 
 ## Differences from the build brief and the architecture diagram (verified against 3.1.0)
 

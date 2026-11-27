@@ -3,7 +3,7 @@
 # - container and network names use the svc-sim workload name
 # - load-generator stays deployed for baseline comparison but does not autostart
 # - flagd reads a runtime copy of the flag file so upstream files stay pristine
-# - the collector extras seam adds rait.testbed=svc-sim to all upstream telemetry
+# - the collector extras seam adds atlas.testbed=svc-sim to all upstream telemetry
 # Paths use ${SVC_SIM_ROOT}, exported by the Makefile.
 
 networks:

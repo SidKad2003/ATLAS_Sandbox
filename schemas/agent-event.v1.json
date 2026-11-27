@@ -55,10 +55,10 @@
     },
     "attributes": {
       "type": "object",
-      "description": "rait.* attributes. rait.testbed is always svc-sim.",
+      "description": "atlas.* attributes. atlas.testbed is always svc-sim.",
       "properties": {
-        "rait.testbed": { "const": "svc-sim" },
-        "rait.run_id": { "type": "string" }
+        "atlas.testbed": { "const": "svc-sim" },
+        "atlas.run_id": { "type": "string" }
       }
     }
   }

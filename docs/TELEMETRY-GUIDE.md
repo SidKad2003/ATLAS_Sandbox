@@ -55,12 +55,12 @@ Older style search (still works): **Service** = the agent's role and **Tags** = 
 | Shopping Assistant | `svc-sim-assistant` | `gen_ai.agent.name="Shopping Assistant"` |
 | Fraud Review | `svc-sim-fraud` | |
 | SRE / Ops | `svc-sim-sre` | |
-| Whole run | `svc-sim-conductor` | `rait.run_id=<run id>` |
+| Whole run | `svc-sim-conductor` | `atlas.run_id=<run id>` |
 
 Each result is one agent step. Expand it and read top to bottom:
 
 ```
-invoke_agent Amara                        one step of the agent (gen_ai.agent.name, gen_ai.conversation.id, rait.run_id)
+invoke_agent Amara                        one step of the agent (gen_ai.agent.name, gen_ai.conversation.id, atlas.run_id)
 ├─ chat svc-sim-mock-small-v1             the model decided what to do (gen_ai.usage.input_tokens / output_tokens, finish reason)
 ├─ execute_tool add_to_cart               the agent called a tool (gen_ai.tool.name, gen_ai.tool.call.id)
 │  └─ POST shop-mcp /mcp                  the MCP server received it
@@ -70,7 +70,7 @@ invoke_agent Amara                        one step of the agent (gen_ai.agent.na
 └─ embeddings ...                         memory retrieval
 ```
 
-A red span is an error (for example a payment fault). Every svc-sim span carries `rait.testbed`, `rait.run_id` and the acting agent's `gen_ai.agent.name`, so a search by agent also finds the MCP server spans done on its behalf.
+A red span is an error (for example a payment fault). Every svc-sim span carries `atlas.testbed`, `atlas.run_id` and the acting agent's `gen_ai.agent.name`, so a search by agent also finds the MCP server spans done on its behalf.
 
 ## 3. What the telemetry does not contain
 
@@ -92,7 +92,7 @@ S3 files are OTLP JSON, one export batch per line, zstd-compressed: `zstd -dc tr
 
 | Metric | Labels |
 |---|---|
-| `svc_sim_agent_events_total` | `gen_ai_agent_name`, `svc_sim_agent_type`, `svc_sim_event_kind`, `gen_ai_tool_name`, `svc_sim_outcome`, `rait_run_id` |
-| `svc_sim_llm_tokens_total` | `gen_ai_agent_name`, `gen_ai_token_type`, `gen_ai_request_model`, `svc_sim_llm_purpose`, `rait_run_id` |
+| `svc_sim_agent_events_total` | `gen_ai_agent_name`, `svc_sim_agent_type`, `svc_sim_event_kind`, `gen_ai_tool_name`, `svc_sim_outcome`, `atlas_run_id` |
+| `svc_sim_llm_tokens_total` | `gen_ai_agent_name`, `gen_ai_token_type`, `gen_ai_request_model`, `svc_sim_llm_purpose`, `atlas_run_id` |
 | `gen_ai_client_token_usage_*`, `gen_ai_client_operation_duration_seconds_*` | as above (OTel GenAI semantic conventions) |
 | `traces_span_metrics_*` | upstream span metrics plus `gen_ai_agent_name`, `gen_ai_tool_name`, `gen_ai_operation_name` |

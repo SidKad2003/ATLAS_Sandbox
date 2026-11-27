@@ -120,7 +120,7 @@ class BaseAgent:
             f"agent_run {name}", context=OtelContext(), kind=trace.SpanKind.INTERNAL,
             links=[trace.Link(caller, {"svc_sim.link": "run.start"})] if caller.is_valid else [],
             attributes={GEN_AI_OPERATION: "agent_run", GEN_AI_AGENT_NAME: name, GEN_AI_AGENT_ID: self.agent_id,
-                        "svc_sim.agent.type": self.agent_type, "rait.run_id": run.run_id, "rait.testbed": "svc-sim",
+                        "svc_sim.agent.type": self.agent_type, "atlas.run_id": run.run_id, "atlas.testbed": "svc-sim",
                         "svc_sim.run.seed": run.seed},
         )
         run.data["_run_span"] = root
