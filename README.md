@@ -1,4 +1,4 @@
-# svc-sim
+# Multi Agent System (MAS) as-a-testbed
 A multi-agent system (shoppers, Shopping Assistant, Fraud Review, SRE / Ops, Conductor)
 running on top of the OpenTelemetry Demo Astronomy Shop, with a 2D "store town" visualisation.
 Runs on `svc-sim-host`. Synthetic data only.
@@ -36,3 +36,6 @@ make tunnel         # print SSM port-forward commands for the UIs
 | `schemas/` | `agent-event.v1.json` |
 | `ops/` | Scripts, SQL, collector layer |
 | `tests/` | MCP contract tests and gateway tests (run against the live stack with `make test`) |
+
+<img width="1919" height="986" alt="image" src="https://github.com/user-attachments/assets/9bcf02c0-fa77-45ca-ad29-543484b952f9" />
+
